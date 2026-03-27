@@ -91,4 +91,4 @@ All configuration is done via constants at the top of `src/main.rs`:
 
 ## License
 
-This project is provided as-is for personal use.
+This project is licensed for educational and personal learning purposes only. See [LICENSE](LICENSE) for details.

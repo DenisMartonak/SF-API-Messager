@@ -48,7 +48,7 @@ pub async fn main() {
     let _login_res = session.login().await.expect("Game login failed");
 
     // --- TEST LOGIC ---
-    let target_player = "Spiritx";
+    let target_player = "NAMETOTEST";
     println!("Fetching guild info for: {}", target_player);
 
     let guild_result = get_guild_from_player(&mut session, target_player).await;
