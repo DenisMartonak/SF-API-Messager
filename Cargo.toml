@@ -1,0 +1,18 @@
+[package]
+name = "SFBot"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "sendtest"
+path = "src/sendtest.rs"
+
+[dependencies]
+chrono = "0.4.42"
+env_logger = "0.11.8"
+log = "0.4.29"
+serde_json = "1.0.149"
+sf-api = { path = "C:/Users/denis/Downloads/sf-api-0.3.3/sf-api-0.3.3" }
+strum = "0.27.2"
+tokio = { version = "1.49.0", features = ["full"] }
+dotenv = "0.15"
