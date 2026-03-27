@@ -1,259 +1,134 @@
-use sf_api::{
-    command::{Command, Flag},
-    sso::SFAccount,
-    session::Session,
-    gamestate::GameState,
-    misc::to_sf_string,
-    error::SFError,
-    response::Response,
+mod bot;
+
+use axum::{
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        State,
+    },
+    response::{Html, IntoResponse, Json},
+    routing::{get, post},
+    Router,
 };
-use std::env;
-use std::time::Duration;
-use tokio::time::sleep;
-use dotenv::dotenv;
-use std::collections::HashSet;
-use std::fs::{OpenOptions, File};
-use std::io::{self, BufRead, Write};
+use bot::BotConfig;
+use serde_json::json;
+use sf_api::command::Flag;
+use std::sync::Arc;
+use strum::IntoEnumIterator;
+use tokio::sync::{broadcast, watch, Mutex};
 
-const MIN_LEVEL: u32 = 200;
-const MAX_LEVEL: u32 = 300;
-const MUST_HAVE_POTIONS: bool = true;
-const REQUIRE_NO_GUILD: bool = false;
-
-const ACCEPTED_FLAGS: &[Flag] = &[Flag::Slovakia, Flag::Czechia];
-
-const MSG_SUBJECT: &str = "Guild invite";
-const MSG_CONTENT: &str = "\
-SK:\n\
-Ahoj,\n\
-radi by sme ťa pozvali do nášho cechu. Sme aktívna komunita hráčov, ktorí sa zameriavajú na pravidelnú aktivitu, dlhodobý progres a tímovú spoluprácu. Navzájom si pomáhame, komunikujeme a spoločne sa snažíme posúvať cech aj jednotlivcov dopredu.\n\
-Hľadáme hráčov, ktorí majú záujem hrať aktívne a byť súčasťou stabilného kolektívu. Ak hľadáš cech s rozumným prístupom, dobrými bonusmi a priateľskou atmosférou, budeme radi, ak sa nám ozveš.\n
-EN:\n\
-Hello,\n\
-We would like to invite you to join our guild. We are an active community of players focused on regular activity, long-term progress, and teamwork. We support each other, communicate, and work together to move both the guild and its members forward.\n\
-We would be happy to hear from you.";
-const MAX_PAGES_TO_SCAN: u32 = 200;
-const HISTORY_FILE: &str = "contacted.txt";
-const MAX_CONSECUTIVE_FAILURES: u32 = 5;
-
-pub async fn send_private_message(
-    session: &mut Session,
-    target_name: &str,
-    subject: &str,
-    message: &str,
-) -> Result<Response, SFError> {
-    let cmd = Command::Custom {
-        cmd_name: "PlayerMessageSend".to_string(),
-        arguments: vec![
-            target_name.to_string(),
-            to_sf_string(subject),
-            to_sf_string(message),
-        ],
-    };
-    session.send_command(cmd).await
-}
-
-fn load_history() -> HashSet<String> {
-    let mut set = HashSet::new();
-    if let Ok(file) = File::open(HISTORY_FILE) {
-        let reader = io::BufReader::new(file);
-        for line in reader.lines() {
-            if let Ok(name) = line {
-                if !name.trim().is_empty() {
-                    set.insert(name.trim().to_string());
-                }
-            }
-        }
-    }
-    set
-}
-
-fn save_to_history(name: &str) {
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(HISTORY_FILE)
-    {
-        if let Err(e) = writeln!(file, "{}", name) {
-            eprintln!("Failed to write to history file: {}", e);
-        }
-    }
+struct AppState {
+    log_tx: broadcast::Sender<String>,
+    status: Mutex<String>,
+    stop_tx: Mutex<Option<watch::Sender<bool>>>,
 }
 
 #[tokio::main]
-pub async fn main() {
-    dotenv().ok();
+async fn main() {
+    let (log_tx, _) = broadcast::channel::<String>(1000);
 
-    if ACCEPTED_FLAGS.is_empty() {
-        eprintln!("WARNING: ACCEPTED_FLAGS is empty — all players will be skipped!");
+    let state = Arc::new(AppState {
+        log_tx,
+        status: Mutex::new("idle".to_string()),
+        stop_tx: Mutex::new(None),
+    });
+
+    let app = Router::new()
+        .route("/", get(index_handler))
+        .route("/api/start", post(start_handler))
+        .route("/api/stop", post(stop_handler))
+        .route("/api/status", get(status_handler))
+        .route("/api/flags", get(flags_handler))
+        .route("/api/history", get(history_handler))
+        .route("/ws", get(ws_handler))
+        .with_state(state);
+
+    println!("SFBot Web UI running at http://localhost:3000");
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+        .await
+        .expect("Failed to bind to port 3000");
+    axum::serve(listener, app)
+        .await
+        .expect("Server error");
+}
+
+async fn index_handler() -> impl IntoResponse {
+    Html(include_str!("static/index.html"))
+}
+
+async fn start_handler(
+    State(state): State<Arc<AppState>>,
+    Json(config): Json<BotConfig>,
+) -> impl IntoResponse {
+    let mut status = state.status.lock().await;
+    if *status != "idle" {
+        return Json(json!({"ok": false, "error": "Bot is already running"}));
     }
+    *status = "running".to_string();
+    drop(status);
 
-    let mut contacted_players = load_history();
-    println!("Loaded {} players from history.", contacted_players.len());
+    let (stop_tx, stop_rx) = watch::channel(false);
+    *state.stop_tx.lock().await = Some(stop_tx);
 
-    println!("Logging in...");
-    let account = SFAccount::login(
-        env::var("SSO_USERNAME").expect("Missing SSO_USERNAME"),
-        env::var("PASSWORD").expect("Missing PASSWORD"),
-    )
-    .await
-    .expect("Failed to login to S&F Account");
+    let log_tx = state.log_tx.clone();
+    let state_clone = state.clone();
 
-    let characters = account.characters().await.expect("Failed to fetch characters");
-    let mut session = characters
-        .into_iter()
-        .flatten()
-        .next()
-        .expect("No character found on account!");
+    tokio::spawn(async move {
+        bot::run_scan(config, log_tx, stop_rx).await;
+        *state_clone.status.lock().await = "idle".to_string();
+        *state_clone.stop_tx.lock().await = None;
+    });
 
-    println!("Connecting to game server: {}...", session.server_url());
-    let login_res = session.login().await.expect("Game login failed");
+    Json(json!({"ok": true}))
+}
 
-    let mut gs = GameState::new(login_res).expect("Failed to init GameState");
-
-    println!(
-        "Logged in as {}. Starting HOF Scan...",
-        session.username()
-    );
-    println!(
-        "Filters: Lvl {}-{}, No Guild: {}, Potions: {}",
-        MIN_LEVEL, MAX_LEVEL, REQUIRE_NO_GUILD, MUST_HAVE_POTIONS
-    );
-    println!("Accepted Flags: {:?}", ACCEPTED_FLAGS);
-
-    let mut consecutive_failures: u32 = 0;
-
-    for page in 0..MAX_PAGES_TO_SCAN {
-        println!("Scanning Page {}", page);
-
-        let res = match session
-            .send_command(Command::HallOfFamePage {
-                page: page as usize,
-            })
-            .await
-        {
-            Ok(r) => {
-                consecutive_failures = 0;
-                r
-            }
-            Err(e) => {
-                consecutive_failures += 1;
-                eprintln!(
-                    "Failed to fetch page {} ({} consecutive failures): {}",
-                    page, consecutive_failures, e
-                );
-
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                    eprintln!("Too many consecutive failures. Attempting re-login...");
-                    match session.login().await {
-                        Ok(login_res) => {
-                            gs = GameState::new(login_res)
-                                .expect("Failed to re-init GameState");
-                            consecutive_failures = 0;
-                            eprintln!("Re-login successful.");
-                        }
-                        Err(login_err) => {
-                            eprintln!("Re-login failed: {}. Aborting scan.", login_err);
-                            return;
-                        }
-                    }
-                }
-
-                sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-        };
-
-        if let Err(e) = gs.update(&res) {
-            eprintln!("Failed to parse HOF data: {}", e);
-            continue;
-        }
-
-        let players = gs.hall_of_fames.players.clone();
-
-        if players.is_empty() {
-            println!("End of Hall of Fame reached.");
-            break;
-        }
-
-        for player in players {
-            if contacted_players.contains(&player.name) {
-                continue;
-            }
-
-            if player.level < MIN_LEVEL || player.level > MAX_LEVEL {
-                continue;
-            }
-
-            if REQUIRE_NO_GUILD && player.guild.is_some() {
-                continue;
-            }
-
-            if let Some(player_flag) = player.flag {
-                if !ACCEPTED_FLAGS.contains(&player_flag) {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-
-            println!(
-                "Checking candidate: {} (Lvl {} | {:?})...",
-                player.name, player.level, player.flag
-            );
-
-            sleep(Duration::from_millis(500)).await;
-
-            match session
-                .send_command(Command::ViewPlayer {
-                    ident: player.name.clone(),
-                })
-                .await
-            {
-                Ok(profile_res) => {
-                    if let Err(e) = gs.update(&profile_res) {
-                        eprintln!("Failed to parse profile for {}: {}", player.name, e);
-                        continue;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Failed to view profile: {}", e);
-                    continue;
-                }
-            }
-
-            let has_potions = if let Some(details) = gs.lookup.lookup_name(&player.name) {
-                details.active_potions.iter().any(|p| p.is_some())
-            } else {
-                false
-            };
-
-            if MUST_HAVE_POTIONS && !has_potions {
-                println!("Skipping (No active potions).");
-                continue;
-            }
-
-            println!("MATCH! Sending message to {}...", player.name);
-
-            match send_private_message(&mut session, &player.name, MSG_SUBJECT, MSG_CONTENT).await
-            {
-                Ok(_) => {
-                    println!("Message sent! Waiting 40s...");
-                    save_to_history(&player.name);
-                    contacted_players.insert(player.name.clone());
-                    sleep(Duration::from_secs(40)).await;
-                }
-                Err(e) => {
-                    eprintln!("Failed to send message to {}: {}", player.name, e);
-                    contacted_players.insert(player.name.clone());
-                    println!("Waiting 40s...");
-                    sleep(Duration::from_secs(40)).await;
-                }
-            }
-        }
-
-        sleep(Duration::from_secs(2)).await;
+async fn stop_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let status = state.status.lock().await;
+    if *status != "running" {
+        return Json(json!({"ok": false, "error": "Bot is not running"}));
     }
+    drop(status);
 
-    println!("Scan complete.");
+    if let Some(tx) = state.stop_tx.lock().await.as_ref() {
+        let _ = tx.send(true);
+    }
+    *state.status.lock().await = "stopping".to_string();
+
+    Json(json!({"ok": true}))
+}
+
+async fn status_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let status = state.status.lock().await.clone();
+    Json(json!({"status": status}))
+}
+
+async fn flags_handler() -> impl IntoResponse {
+    let flags: Vec<String> = Flag::iter().map(|f| format!("{:?}", f)).collect();
+    Json(flags)
+}
+
+async fn history_handler() -> impl IntoResponse {
+    Json(bot::load_history_list())
+}
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_ws(socket, state))
+}
+
+async fn handle_ws(mut socket: WebSocket, state: Arc<AppState>) {
+    let mut rx = state.log_tx.subscribe();
+    loop {
+        match rx.recv().await {
+            Ok(msg) => {
+                if socket.send(Message::Text(msg.into())).await.is_err() {
+                    break;
+                }
+            }
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
 }

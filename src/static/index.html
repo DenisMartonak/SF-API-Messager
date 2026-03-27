@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SFBot Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --primary: #58a6ff;
+    --success: #3fb950;
+    --error: #f85149;
+    --warn: #d29922;
+    --radius: 8px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 20px; font-weight: 600; }
+  #statusBadge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-idle { background: var(--border); color: var(--text-muted); }
+  .badge-running { background: #0d419d; color: var(--primary); }
+  .badge-stopping { background: #5a1e02; color: var(--warn); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 0;
+    height: calc(100vh - 57px);
+  }
+
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  .main-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    margin-top: 10px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  input[type="text"],
+  input[type="password"],
+  input[type="number"],
+  textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, textarea:focus {
+    border-color: var(--primary);
+  }
+  textarea { resize: vertical; min-height: 80px; }
+
+  .row {
+    display: flex;
+    gap: 10px;
+  }
+  .row > * { flex: 1; }
+
+  .flags-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .flag-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 2px 0;
+  }
+  .flag-item input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+  }
+  .toggle-row span { font-size: 14px; }
+  .toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider {
+    position: absolute;
+    inset: 0;
+    background: var(--border);
+    border-radius: 22px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle .slider::before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 3px;
+    background: var(--text);
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle input:checked + .slider { background: var(--primary); }
+  .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+  .controls {
+    display: flex;
+    gap: 10px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+
+  button {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-start { background: var(--success); color: #000; }
+  .btn-stop { background: var(--error); color: #fff; }
+  .btn-clear { background: var(--border); color: var(--text); margin-left: auto; }
+
+  .stats-bar {
+    display: flex;
+    gap: 24px;
+    margin-left: 20px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .stat-value {
+    font-weight: 700;
+    color: var(--text);
+    margin-left: 4px;
+  }
+
+  .log-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 20px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    background: var(--bg);
+  }
+
+  .log-line { white-space: pre-wrap; word-break: break-word; }
+  .log-info { color: var(--text-muted); }
+  .log-success { color: var(--success); }
+  .log-error { color: var(--error); }
+  .log-warn { color: var(--warn); }
+
+  .log-time {
+    color: #484f58;
+    margin-right: 8px;
+    user-select: none;
+  }
+
+  .history-toggle {
+    background: none;
+    border: none;
+    color: var(--primary);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+    font-weight: 600;
+  }
+  .history-toggle:hover { text-decoration: underline; }
+  .history-list {
+    max-height: 150px;
+    overflow-y: auto;
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-top: 8px;
+    display: none;
+  }
+  .history-list.open { display: block; }
+  .history-list div { padding: 2px 0; }
+  .history-count { color: var(--text-muted); font-size: 12px; margin-left: 6px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); max-height: 50vh; }
+    .main-panel { min-height: 50vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SFBot Dashboard</h1>
+  <span id="statusBadge" class="badge-idle">Idle</span>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="card">
+      <h2>Login</h2>
+      <label for="username">SSO Username</label>
+      <input type="text" id="username" autocomplete="username">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password">
+    </div>
+
+    <div class="card">
+      <h2>Filters</h2>
+      <div class="row">
+        <div>
+          <label for="minLevel">Min Level</label>
+          <input type="number" id="minLevel" value="200" min="1" max="1000">
+        </div>
+        <div>
+          <label for="maxLevel">Max Level</label>
+          <input type="number" id="maxLevel" value="300" min="1" max="1000">
+        </div>
+      </div>
+
+      <label>Country Flags</label>
+      <div class="flags-grid" id="flagsGrid">
+        <div style="color: var(--text-muted); grid-column: 1/-1;">Loading flags...</div>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="toggle-row">
+          <span>Must have potions</span>
+          <label class="toggle">
+            <input type="checkbox" id="mustPotions" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Require no guild</span>
+          <label class="toggle">
+            <input type="checkbox" id="requireNoGuild">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Message</h2>
+      <label for="msgSubject">Subject</label>
+      <input type="text" id="msgSubject" value="Guild invite">
+      <label for="msgContent">Content</label>
+      <textarea id="msgContent" rows="6">SK:
+Ahoj,
+radi by sme ťa pozvali do nášho cechu. Sme aktívna komunita hráčov, ktorí sa zameriavajú na pravidelnú aktivitu, dlhodobý progres a tímovú spoluprácu.
+
+EN:
+Hello,
+We would like to invite you to join our guild. We are an active community focused on regular activity, long-term progress, and teamwork.
+We would be happy to hear from you.</textarea>
+    </div>
+
+    <div class="card">
+      <h2>Scan Settings</h2>
+      <label for="maxPages">Max Pages to Scan</label>
+      <input type="number" id="maxPages" value="200" min="1" max="1000">
+    </div>
+
+    <div class="card">
+      <h2>History</h2>
+      <button class="history-toggle" onclick="toggleHistory()">
+        Show contacted players<span class="history-count" id="historyCount"></span>
+      </button>
+      <div class="history-list" id="historyList"></div>
+    </div>
+  </div>
+
+  <div class="main-panel">
+    <div class="controls">
+      <button class="btn-start" id="btnStart" onclick="startScan()">Start Scan</button>
+      <button class="btn-stop" id="btnStop" onclick="stopScan()" disabled>Stop</button>
+      <div class="stats-bar">
+        <span>Pages:<span class="stat-value" id="statPages">0</span></span>
+        <span>Checked:<span class="stat-value" id="statChecked">0</span></span>
+        <span>Matches:<span class="stat-value" id="statMatches">0</span></span>
+        <span>Sent:<span class="stat-value" id="statSent">0</span></span>
+      </div>
+      <button class="btn-clear" onclick="clearLog()">Clear Log</button>
+    </div>
+    <div class="log-container" id="logContainer"></div>
+  </div>
+</div>
+
+<script>
+  const logEl = document.getElementById('logContainer');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop = document.getElementById('btnStop');
+  const badge = document.getElementById('statusBadge');
+
+  let ws = null;
+  let autoScroll = true;
+
+  logEl.addEventListener('scroll', () => {
+    const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+    autoScroll = atBottom;
+  });
+
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'log') {
+          appendLog(data.level, data.message);
+        } else if (data.type === 'stats') {
+          updateStats(data.data);
+        } else if (data.type === 'status') {
+          setStatus(data.status);
+        } else if (data.type === 'history') {
+          addHistoryEntry(data.name);
+        }
+      } catch (_) {
+        appendLog('info', e.data);
+      }
+    };
+    ws.onclose = () => {
+      appendLog('warn', 'WebSocket disconnected. Reconnecting in 3s...');
+      setTimeout(connectWS, 3000);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  function appendLog(level, message) {
+    const div = document.createElement('div');
+    div.className = `log-line log-${level}`;
+    const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
+    div.innerHTML = `<span class="log-time">${time}</span>${escapeHtml(message)}`;
+    logEl.appendChild(div);
+    if (autoScroll) logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function updateStats(s) {
+    document.getElementById('statPages').textContent = s.pages_scanned;
+    document.getElementById('statChecked').textContent = s.players_checked;
+    document.getElementById('statMatches').textContent = s.matches_found;
+    document.getElementById('statSent').textContent = s.messages_sent;
+  }
+
+  function setStatus(status) {
+    badge.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    badge.className = `badge-${status}`;
+    if (status === 'running') {
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+    } else if (status === 'stopping') {
+      btnStart.disabled = true;
+      btnStop.disabled = true;
+    } else {
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+    }
+  }
+
+  function getSelectedFlags() {
+    return Array.from(document.querySelectorAll('#flagsGrid input:checked'))
+      .map(cb => cb.value);
+  }
+
+  async function startScan() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) {
+      appendLog('error', 'Please enter username and password.');
+      return;
+    }
+    const flags = getSelectedFlags();
+    if (flags.length === 0) {
+      appendLog('warn', 'No flags selected. All players will be skipped.');
+    }
+
+    const config = {
+      username,
+      password,
+      min_level: parseInt(document.getElementById('minLevel').value) || 200,
+      max_level: parseInt(document.getElementById('maxLevel').value) || 300,
+      must_have_potions: document.getElementById('mustPotions').checked,
+      require_no_guild: document.getElementById('requireNoGuild').checked,
+      accepted_flags: flags,
+      msg_subject: document.getElementById('msgSubject').value,
+      msg_content: document.getElementById('msgContent').value,
+      max_pages: parseInt(document.getElementById('maxPages').value) || 200,
+    };
+
+    btnStart.disabled = true;
+    try {
+      const res = await fetch('/api/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatus('running');
+        appendLog('info', 'Scan started.');
+      } else {
+        appendLog('error', data.error || 'Failed to start scan.');
+        btnStart.disabled = false;
+      }
+    } catch (e) {
+      appendLog('error', 'Network error: ' + e.message);
+      btnStart.disabled = false;
+    }
+  }
+
+  async function stopScan() {
+    btnStop.disabled = true;
+    try {
+      const res = await fetch('/api/stop', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        setStatus('stopping');
+        appendLog('info', 'Stop signal sent. Waiting for current operation to finish...');
+      } else {
+        appendLog('error', data.error || 'Failed to stop.');
+        btnStop.disabled = false;
+      }
+    } catch (e) {
+      appendLog('error', 'Network error: ' + e.message);
+      btnStop.disabled = false;
+    }
+  }
+
+  function clearLog() {
+    logEl.innerHTML = '';
+  }
+
+  async function loadFlags() {
+    try {
+      const res = await fetch('/api/flags');
+      const flags = await res.json();
+      const grid = document.getElementById('flagsGrid');
+      grid.innerHTML = '';
+      const defaults = ['Slovakia', 'Czechia'];
+      flags.forEach(flag => {
+        const label = document.createElement('label');
+        label.className = 'flag-item';
+        const checked = defaults.includes(flag) ? 'checked' : '';
+        label.innerHTML = `<input type="checkbox" value="${flag}" ${checked}> ${formatFlagName(flag)}`;
+        grid.appendChild(label);
+      });
+    } catch (e) {
+      document.getElementById('flagsGrid').innerHTML =
+        '<div style="color: var(--error); grid-column: 1/-1;">Failed to load flags</div>';
+    }
+  }
+
+  function formatFlagName(name) {
+    return name.replace(/([A-Z])/g, ' $1').trim();
+  }
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/history');
+      const list = await res.json();
+      historyData = list.slice();
+      const el = document.getElementById('historyList');
+      const count = document.getElementById('historyCount');
+      count.textContent = `(${historyData.length})`;
+      el.innerHTML = historyData.length
+        ? historyData.slice().reverse().map(n => `<div>${escapeHtml(n)}</div>`).join('')
+        : '<div>No players contacted yet.</div>';
+    } catch (_) {}
+  }
+
+  let historyData = [];
+
+  function addHistoryEntry(name) {
+    historyData.push(name);
+    const count = document.getElementById('historyCount');
+    count.textContent = `(${historyData.length})`;
+    const el = document.getElementById('historyList');
+    if (el.classList.contains('open')) {
+      const div = document.createElement('div');
+      div.textContent = name;
+      el.prepend(div);
+    }
+  }
+
+  function toggleHistory() {
+    const el = document.getElementById('historyList');
+    el.classList.toggle('open');
+    if (el.classList.contains('open')) loadHistory();
+  }
+
+  async function checkStatus() {
+    try {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      setStatus(data.status);
+    } catch (_) {}
+  }
+
+  checkStatus();
+  loadFlags();
+  loadHistory();
+  connectWS();
+</script>
+</body>
+</html>
