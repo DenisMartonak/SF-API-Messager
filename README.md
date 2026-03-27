@@ -14,33 +14,30 @@ Built with Rust using the [sf-api](https://github.com/) crate for game server co
 - Filters players by level range, country flag, guild membership, and active potions
 - Sends a customizable private message to matching players
 - Tracks contacted players in a local history file to avoid duplicate messages
+- **Persistent settings** -- configuration saved to `config.json` automatically (password excluded)
 - Automatic session re-login on consecutive failures
 - Graceful stop -- cancel a running scan at any time from the UI
 - Rate-limited requests to avoid triggering server-side protections
+- **Single .exe** -- no external files needed, the web UI is embedded in the binary
 
-## Requirements
+## Quick Start (no Rust needed)
 
-- Rust (edition 2024)
-- A Shakes & Fidget SSO account
+1. Download `SFBot.exe` from the [latest release](https://github.com/DenisMartonak/SF-API-Messager/releases/latest)
+2. Run `SFBot.exe`
+3. Open **http://localhost:3000** in your browser
+4. Enter your SSO credentials, adjust filters, and click **Start Scan**
 
-## Setup
+Your settings are saved automatically to `config.json` (password excluded) so you don't have to re-enter them next time.
 
-1. Clone the repository:
+## Build from Source
+
+Requires Rust (edition 2024).
 
 ```bash
 git clone https://github.com/DenisMartonak/SF-API-Messager.git
 cd SF-API-Messager
-```
-
-2. Build and run:
-
-```bash
 cargo run
 ```
-
-3. Open **http://localhost:3000** in your browser.
-
-4. Enter your SSO credentials, adjust filters, and click **Start Scan**.
 
 ## Web Dashboard
 
@@ -93,8 +90,8 @@ All settings are configured through the web UI before starting a scan:
 │   └── static/
 │       └── index.html       # Web dashboard (embedded at compile time)
 ├── sf-api/                  # Bundled sf-api crate (local dependency)
-├── contacted.txt            # History of contacted player names
-├── env.example              # Template for .env credentials
+├── contacted.txt            # History of contacted player names (auto-created)
+├── config.json              # Saved settings (auto-created, gitignored)
 ├── Cargo.toml
 └── Cargo.lock
 ```

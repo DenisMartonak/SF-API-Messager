@@ -16,6 +16,8 @@ use std::sync::Arc;
 use strum::IntoEnumIterator;
 use tokio::sync::{broadcast, watch, Mutex};
 
+const CONFIG_FILE: &str = "config.json";
+
 struct AppState {
     log_tx: broadcast::Sender<String>,
     status: Mutex<String>,
@@ -39,6 +41,7 @@ async fn main() {
         .route("/api/status", get(status_handler))
         .route("/api/flags", get(flags_handler))
         .route("/api/history", get(history_handler))
+        .route("/api/config", get(get_config_handler).post(save_config_handler))
         .route("/ws", get(ws_handler))
         .with_state(state);
 
@@ -109,6 +112,20 @@ async fn flags_handler() -> impl IntoResponse {
 
 async fn history_handler() -> impl IntoResponse {
     Json(bot::load_history_list())
+}
+
+async fn get_config_handler() -> impl IntoResponse {
+    match std::fs::read_to_string(CONFIG_FILE) {
+        Ok(contents) => Json(serde_json::from_str::<serde_json::Value>(&contents).unwrap_or(json!({}))),
+        Err(_) => Json(json!({})),
+    }
+}
+
+async fn save_config_handler(Json(body): Json<serde_json::Value>) -> impl IntoResponse {
+    match std::fs::write(CONFIG_FILE, serde_json::to_string_pretty(&body).unwrap_or_default()) {
+        Ok(_) => Json(json!({"ok": true})),
+        Err(e) => Json(json!({"ok": false, "error": format!("Failed to save config: {}", e)})),
+    }
 }
 
 async fn ws_handler(

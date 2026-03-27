@@ -7,7 +7,6 @@ use sf_api::{
 };
 
 use std::env;
-use dotenv::dotenv;
 pub async fn get_guild_from_player(
     session: &mut Session,
     player_name: &str
@@ -28,8 +27,6 @@ pub async fn get_guild_from_player(
 
 #[tokio::main]
 pub async fn main() {
-    dotenv().ok();
-
     // --- LOGIN SEQUENCE ---
     println!("Logging in...");
     let account = SFAccount::login(

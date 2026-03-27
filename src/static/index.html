@@ -480,6 +480,8 @@ We would be happy to hear from you.</textarea>
       max_pages: parseInt(document.getElementById('maxPages').value) || 200,
     };
 
+    saveConfig(config);
+
     btnStart.disabled = true;
     try {
       const res = await fetch('/api/start', {
@@ -523,17 +525,49 @@ We would be happy to hear from you.</textarea>
     logEl.innerHTML = '';
   }
 
+  let savedConfig = null;
+
+  async function loadConfig() {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      if (cfg && Object.keys(cfg).length > 0) {
+        savedConfig = cfg;
+        if (cfg.username) document.getElementById('username').value = cfg.username;
+        if (cfg.min_level) document.getElementById('minLevel').value = cfg.min_level;
+        if (cfg.max_level) document.getElementById('maxLevel').value = cfg.max_level;
+        if (cfg.must_have_potions !== undefined) document.getElementById('mustPotions').checked = cfg.must_have_potions;
+        if (cfg.require_no_guild !== undefined) document.getElementById('requireNoGuild').checked = cfg.require_no_guild;
+        if (cfg.msg_subject) document.getElementById('msgSubject').value = cfg.msg_subject;
+        if (cfg.msg_content) document.getElementById('msgContent').value = cfg.msg_content;
+        if (cfg.max_pages) document.getElementById('maxPages').value = cfg.max_pages;
+      }
+    } catch (_) {}
+  }
+
+  function saveConfig(config) {
+    const toSave = Object.assign({}, config);
+    delete toSave.password;
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(toSave),
+    }).catch(() => {});
+  }
+
   async function loadFlags() {
     try {
       const res = await fetch('/api/flags');
       const flags = await res.json();
       const grid = document.getElementById('flagsGrid');
       grid.innerHTML = '';
-      const defaults = ['Slovakia', 'Czechia'];
+      const selected = savedConfig && savedConfig.accepted_flags
+        ? savedConfig.accepted_flags
+        : ['Slovakia', 'Czechia'];
       flags.forEach(flag => {
         const label = document.createElement('label');
         label.className = 'flag-item';
-        const checked = defaults.includes(flag) ? 'checked' : '';
+        const checked = selected.includes(flag) ? 'checked' : '';
         label.innerHTML = `<input type="checkbox" value="${flag}" ${checked}> ${formatFlagName(flag)}`;
         grid.appendChild(label);
       });
@@ -589,10 +623,14 @@ We would be happy to hear from you.</textarea>
     } catch (_) {}
   }
 
-  checkStatus();
-  loadFlags();
-  loadHistory();
-  connectWS();
+  async function init() {
+    checkStatus();
+    await loadConfig();
+    await loadFlags();
+    loadHistory();
+    connectWS();
+  }
+  init();
 </script>
 </body>
 </html>
