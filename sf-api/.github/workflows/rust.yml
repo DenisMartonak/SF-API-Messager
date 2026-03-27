@@ -1,0 +1,49 @@
+name: "Check Rust Code"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-no-defaults:
+    name: Build (no defaults)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Build no defaults
+        run: cargo build --verbose --no-default-features
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run tests
+        run: cargo test --verbose
+  format:
+    name: Check Code Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+          toolchain: nightly
+      - uses: actions-rust-lang/rustfmt@v1
+  clippy:
+    name: Check Clippy Lints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+          toolchain: nightly
+      - name: Clippy
+        run: cargo clippy --verbose -- -D warnings
