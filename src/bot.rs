@@ -180,6 +180,11 @@ pub async fn run_scan(
         }
     };
 
+    let own_guild = gs.guild.as_ref().map(|g| g.name.clone());
+    if let Some(ref name) = own_guild {
+        emit(&log_tx, "info", &format!("Your guild: {}", name));
+    }
+
     emit(&log_tx, "success", &format!(
         "Logged in as {}. Starting HoF scan...", session.username()
     ));
@@ -312,9 +317,16 @@ pub async fn run_scan(
                 }
             }
 
-            let has_potions = gs
-                .lookup
-                .lookup_name(&player.name)
+            let looked_up = gs.lookup.lookup_name(&player.name);
+
+            if let (Some(own), Some(details)) = (&own_guild, &looked_up) {
+                if details.guild.as_deref() == Some(own.as_str()) {
+                    emit(&log_tx, "info", &format!("Skipping {} (same guild).", player.name));
+                    continue;
+                }
+            }
+
+            let has_potions = looked_up
                 .map(|d| d.active_potions.iter().any(|p| p.is_some()))
                 .unwrap_or(false);
 
