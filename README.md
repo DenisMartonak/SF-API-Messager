@@ -2,7 +2,7 @@
 
 An automated recruitment bot for [Shakes & Fidget](https://www.sfgame.net/) with a built-in web dashboard. Scans the Hall of Fame, filters players by configurable criteria, and sends them a guild invitation via private message -- all controllable from your browser.
 
-Built with Rust using the [sf-api](https://github.com/) crate for game server communication and [axum](https://github.com/tokio-rs/axum) for the web UI.
+Built with Rust using the [sf-api](https://github.com/the-marenga/sf-api) crate for game server communication and [axum](https://github.com/tokio-rs/axum) for the web UI.
 
 ## Features
 
